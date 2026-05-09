@@ -1,0 +1,62 @@
+# Copilot instructions for this repository
+
+## Quick commands
+
+- Dev server (frontend):
+  - cd currency-war && npm install && npm run dev
+- Build (production):
+  - cd currency-war && npm run build  # runs: tsc -b && vite build
+- Lint (all files):
+  - cd currency-war && npm run lint  # runs eslint .
+  - Lint a single file: cd currency-war && npx eslint src/components/TopBar.tsx
+- Playwright e2e (end-to-end):
+  - Run full suite: cd currency-war && npm run test:e2e
+  - Run headed: cd currency-war && npm run test:e2e:headed
+  - Run a single test file: cd currency-war && npx playwright test path/to/spec.ts
+  - Run a single test by name: cd currency-war && npx playwright test -g "test name"
+
+## High-level architecture
+
+- Frontend-only project (Vite + React + TypeScript) located in `currency-war/`.
+- State management: Zustand store at `src/store/gameStore.ts`. Central single-store pattern; main exported hook is `useGameStore`.
+- UI: Component tree rooted at `src/main.tsx` → `App.tsx`. Major panels:
+  - TopBar, BattleBoard, ShopPanel, BenchPanel, InfoPanel (under `src/components/`).
+- Data-driven design: gameplay content is in `src/data/`:
+  - `heroes.ts` — Hero configs (id, cost, traits, baseStats)
+  - `bonds.ts` — Bond/trait definitions and activation levels
+  - `investments.ts` — Investment configs (id, tier, effect)
+- Utilities: `src/utils/` contains game logic helpers (e.g., `bondCalculator.ts`) used to derive UI state from data and board state.
+
+## Key conventions and patterns (important for Copilot)
+
+- IDs are authoritative strings:
+  - Hero ids: `h1`, `h2`, ... (use HEROES array)
+  - Bond keys: use the Chinese trait names (e.g., '仙舟') as keys into `BONDS`.
+  - Investment ids: `inv_1`, `inv_2`, ...
+- Hero instances on bench/board use the `HeroInstance` shape from the store: `{ uuid, heroId, star }` — uuid is generated client-side.
+- Shop behavior:
+  - `shop.cards` is an array of heroId or `null` (card becomes `null` when bought).
+  - Bench has 9 slots (Array(9).fill(null)); board has 8 slots (2 rows × 4 cols). Board capacity is gated by `player.level`.
+- Bond counting:
+  - `calculateActiveBonds` counts unique heroIds on the board (duplicate 1-star copies count once). See `src/utils/bondCalculator.ts` for exact logic — copy or reuse this implementation when changing UI displays.
+- State transitions:
+  - Game phase values: `'planning' | 'combat' | 'event' | 'gameover'` — preserve these exact strings when reading/writing state.
+  - Use `useGameStore` actions (e.g., `buyHero`, `moveHero`, `startCombat`, `endCombat`) rather than mutating store objects directly.
+- Cost / XP / Level arrays are centralized (see `LEVEL_XP_REQ` in `gameStore.ts`) — update there if changing level progression.
+
+## Where to change content safely
+
+- Add or tweak heroes / bonds / investments in `src/data/*` — UI and game logic expect those shapes.
+- Keep `effect` on InvestmentConfig pure/simple and avoid side-effectful global mutations. Prefer returning patches to game state where possible.
+
+## Files and search terms helpful to Copilot
+
+- use these symbols to find fast: `useGameStore`, `HEROES`, `BONDS`, `INVESTMENTS`, `calculateActiveBonds`, `BenchPanel`, `BattleBoard`, `ShopPanel`.
+
+## Other AI assistant configs
+
+- No other assistant config files (CLAUDE.md, .cursorrules, AGENTS.md, etc.) were found besides this file. If present, merge relevant rules into this doc.
+
+---
+
+If any of these sections should be expanded (e.g., API surface, test locations, component map), say which area to cover next.
