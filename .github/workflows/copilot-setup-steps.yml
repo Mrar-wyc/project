@@ -1,0 +1,36 @@
+name: "Copilot Setup Steps"
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - .github/workflows/copilot-setup-steps.yml
+  pull_request:
+    paths:
+      - .github/workflows/copilot-setup-steps.yml
+
+jobs:
+  # Job name MUST be `copilot-setup-steps` for Copilot cloud agent to pick it up
+  copilot-setup-steps:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install JavaScript dependencies
+        run: |
+          cd currency-war
+          npm ci
+
+      - name: Install Playwright browsers
+        run: |
+          cd currency-war
+          npx playwright install --with-deps
