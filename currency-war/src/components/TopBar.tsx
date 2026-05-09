@@ -53,13 +53,22 @@ const TopBar: React.FC = () => {
       </div>
 
       {/* 右侧：经济与等级 */}
-      <div className="flex gap-4 pointer-events-auto">
+      <div className="flex gap-4 pointer-events-auto items-center">
         <div className="glass-panel-hsr clip-bevel-tl-br px-6 py-2 flex items-center gap-3 bg-[rgba(212,168,83,0.1)]">
           <Coins size={20} className="text-[var(--color-hsr-gold)]" />
           <span className="text-[var(--color-hsr-gold)] font-bold text-xl font-mono">
             <AnimatedNumber value={player.gold} />
           </span>
         </div>
+
+        <button 
+          onClick={useGameStore.getState().buyExp}
+          disabled={player.gold < 4 || player.level >= 10 || game.phase !== 'planning'}
+          className="glass-panel-hsr px-4 py-2 hover:bg-[rgba(255,255,255,0.1)] transition-colors active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed group flex items-center gap-2 border-[var(--color-hsr-cyan)]"
+        >
+          <span className="text-[var(--color-hsr-cyan)] font-bold tracking-widest text-sm">购买经验</span>
+          <span className="text-[var(--color-hsr-gold)] text-xs font-mono font-bold">4<Coins size={10} className="inline ml-0.5" /></span>
+        </button>
 
         <div className="glass-panel-hsr clip-bevel-tl-br px-6 py-2 flex items-center gap-3">
           <Zap size={20} className="text-[var(--color-hsr-cyan)]" />

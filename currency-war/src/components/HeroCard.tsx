@@ -1,7 +1,7 @@
 import React, { useRef } from 'react';
 import { HEROES } from '../data/heroes';
-import type { HeroInstance } from '../store/gameStore';
-import { motion, useMotionValue, useTransform } from 'framer-motion';
+import { useGameStore, type HeroInstance } from '../store/gameStore';
+import { motion, useMotionValue, useTransform, AnimatePresence } from 'framer-motion';
 import { Coins } from 'lucide-react';
 
 interface Props {
@@ -13,6 +13,7 @@ interface Props {
   className?: string;
   width?: string;
   height?: string;
+  slotKey?: string; // For combat state binding
 }
 
 const HeroCard: React.FC<Props> = ({ 
@@ -23,8 +24,12 @@ const HeroCard: React.FC<Props> = ({
   onClick, 
   className = '',
   width = 'w-24',
-  height = 'h-32'
+  height = 'h-32',
+  slotKey
 }) => {
+  const combatState = useGameStore(state => slotKey ? state.combatState[slotKey] : undefined);
+  const removeDamageEvent = useGameStore(state => state.removeDamageEvent);
+
   const cardRef = useRef<HTMLDivElement>(null);
   const x = useMotionValue(0);
   const y = useMotionValue(0);
@@ -113,6 +118,37 @@ const HeroCard: React.FC<Props> = ({
             ))}
           </div>
         </div>
+
+        {/* Combat HP Bar */}
+        {combatState && (
+          <div className="absolute bottom-0 left-0 w-full h-1.5 bg-[rgba(0,0,0,0.5)] z-20">
+            <div 
+              className="h-full bg-[var(--color-hsr-danger)] transition-all duration-200"
+              style={{ width: `${Math.max(0, (combatState.hp / combatState.maxHp) * 100)}%` }}
+            />
+          </div>
+        )}
+
+        {/* Damage Floating Text */}
+        <div className="absolute top-1/4 left-0 w-full h-full pointer-events-none z-30 flex items-center justify-center">
+          <AnimatePresence>
+            {combatState?.damageEvents.map((evt) => (
+              <motion.div
+                key={evt.id}
+                initial={{ opacity: 1, y: 0, scale: 0.5 }}
+                animate={{ opacity: 1, y: -40, scale: 1.2 }}
+                exit={{ opacity: 0, scale: 0.8 }}
+                transition={{ duration: 0.6, ease: "easeOut" }}
+                onAnimationComplete={() => removeDamageEvent(slotKey!, evt.id)}
+                className="absolute text-xl font-black text-white drop-shadow-[0_0_5px_rgba(220,38,38,1)]"
+                style={{ textShadow: '2px 2px 0 #000' }}
+              >
+                -{Math.round(evt.amount)}
+              </motion.div>
+            ))}
+          </AnimatePresence>
+        </div>
+
       </motion.div>
     </div>
   );

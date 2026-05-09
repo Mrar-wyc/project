@@ -13,6 +13,7 @@ export interface PlayerState {
   level: number;
   xp: number;
   maxHp: number;
+  maxInterest: number;
 }
 
 export interface ShopState {
@@ -25,8 +26,8 @@ export interface BenchState {
 }
 
 export interface BoardState {
-  // Simple 2-row board for player: Front and Back (e.g., 4 slots each)
-  slots: (HeroInstance | null)[];
+  onFieldSlots: (HeroInstance | null)[]; // 4 slots
+  offFieldSlots: (HeroInstance | null)[]; // 6 slots
 }
 
 export interface GameState {
@@ -37,7 +38,13 @@ export interface GameState {
 }
 
 export interface UIState {
-  selectedSlot: { type: 'bench' | 'board', index: number } | null;
+  selectedSlot: { type: 'bench' | 'onField' | 'offField', index: number } | null;
+}
+
+export interface CombatEntityState {
+  hp: number;
+  maxHp: number;
+  damageEvents: { id: string, amount: number }[];
 }
 
 export interface RootState {
@@ -48,43 +55,211 @@ export interface RootState {
   game: GameState;
   investments: string[]; // Active investment IDs
   ui: UIState;
+  poolCounts: Record<string, number>; // heroId -> remaining count in shared pool
+  combatState: Record<string, CombatEntityState>; // slotKey -> state
 
   // Actions
-  selectSlot: (type: 'bench' | 'board', index: number) => void;
+  selectSlot: (type: 'bench' | 'onField' | 'offField', index: number) => void;
   buyExp: () => void;
   refreshShop: () => void;
   buyHero: (shopIndex: number) => void;
   sellHero: (benchIndex: number) => void;
-  moveHero: (from: { type: 'bench' | 'board', index: number }, to: { type: 'bench' | 'board', index: number }) => void;
+  moveHero: (from: { type: 'bench' | 'onField' | 'offField', index: number }, to: { type: 'bench' | 'onField' | 'offField', index: number }) => void;
   startCombat: () => void;
   endCombat: (win: boolean) => void;
   nextNode: () => void;
+  initCombatState: (states: Record<string, { hp: number, maxHp: number }>) => void;
+  updateCombatHp: (slotKey: string, hp: number) => void;
+  addDamageEvent: (slotKey: string, amount: number) => void;
+  removeDamageEvent: (slotKey: string, eventId: string) => void;
 }
 
 const LEVEL_XP_REQ = [0, 2, 4, 8, 14, 24, 36, 50, 70, 100];
 
-const generateShop = (_level: number) => {
-  // Simplified random shop generation
-  return Array(5).fill(null).map(() => {
-    const randomHero = HEROES[Math.floor(Math.random() * HEROES.length)];
-    return randomHero.id;
-  });
+const COST_POOL_COUNTS: Record<number, number> = {
+  1: 29, 2: 22, 3: 18, 4: 12, 5: 10
 };
 
+const INITIAL_POOL: Record<string, number> = {};
+HEROES.forEach(hero => {
+  INITIAL_POOL[hero.id] = COST_POOL_COUNTS[hero.cost] || 0;
+});
+
+const PROBABILITY_MATRIX: Record<number, number[]> = {
+  1: [100, 0, 0, 0, 0],
+  2: [100, 0, 0, 0, 0],
+  3: [100, 0, 0, 0, 0],
+  4: [65, 25, 10, 0, 0],
+  5: [45, 33, 20, 2, 0],
+  6: [30, 40, 25, 5, 0],
+  7: [19, 30, 40, 10, 1],
+  8: [18, 25, 32, 22, 3],
+  9: [15, 20, 25, 30, 10],
+  10: [5, 10, 20, 40, 25],
+};
+
+const drawCardsFromPool = (level: number, pool: Record<string, number>): (string | null)[] => {
+  const probs = PROBABILITY_MATRIX[level] || PROBABILITY_MATRIX[1];
+  const newCards: (string | null)[] = [];
+
+  for (let i = 0; i < 5; i++) {
+    const roll = Math.random() * 100;
+    let targetCost = 1;
+    let acc = 0;
+    for (let c = 0; c < 5; c++) {
+      acc += probs[c];
+      if (roll < acc) {
+        targetCost = c + 1;
+        break;
+      }
+    }
+
+    const availableHeroes = HEROES.filter(h => h.cost === targetCost && pool[h.id] > 0);
+    if (availableHeroes.length > 0) {
+      const selected = availableHeroes[Math.floor(Math.random() * availableHeroes.length)];
+      pool[selected.id] -= 1;
+      newCards.push(selected.id);
+    } else {
+      newCards.push(null);
+    }
+  }
+
+  return newCards;
+};
+
+// Helper to recursively merge 3 identical heroes of the same star into 1 higher star hero
+const checkAndMergeStars = (state: RootState): Partial<RootState> | null => {
+  const allSlots = [
+    { type: 'bench', index: 0, slot: state.bench.slots[0] },
+    ...state.bench.slots.map((slot, index) => ({ type: 'bench' as const, index, slot })),
+    ...state.board.onFieldSlots.map((slot, index) => ({ type: 'onField' as const, index, slot })),
+    ...state.board.offFieldSlots.map((slot, index) => ({ type: 'offField' as const, index, slot }))
+  ].filter(s => s.slot !== null) as { type: 'bench'|'onField'|'offField', index: number, slot: HeroInstance }[];
+
+  // Group by heroId and star
+  const groups: Record<string, typeof allSlots> = {};
+  allSlots.forEach(s => {
+    const key = `${s.slot.heroId}-${s.slot.star}`;
+    if (!groups[key]) groups[key] = [];
+    groups[key].push(s);
+  });
+
+  for (const key in groups) {
+    if (groups[key].length >= 3) {
+      // We found 3 identical heroes to merge!
+      const mergeTargets = groups[key].slice(0, 3);
+      const newStar = mergeTargets[0].slot.star + 1;
+      
+      // Determine where the merged hero should go.
+      // Priority: 1. onField, 2. offField, 3. bench. 
+      // If multiple in the same zone, pick the first one.
+      const sortedTargets = mergeTargets.sort((a, b) => {
+        const rank = { 'onField': 1, 'offField': 2, 'bench': 3 };
+        return rank[a.type] - rank[b.type];
+      });
+
+      const keepTarget = sortedTargets[0];
+      const removeTargets = sortedTargets.slice(1);
+
+      // Create copies of slots to mutate
+      const newBenchSlots = [...state.bench.slots];
+      const newOnFieldSlots = [...state.board.onFieldSlots];
+      const newOffFieldSlots = [...state.board.offFieldSlots];
+
+      const getSlotsRef = (type: string) => {
+        if (type === 'bench') return newBenchSlots;
+        if (type === 'onField') return newOnFieldSlots;
+        return newOffFieldSlots;
+      };
+
+      // Upgrade the kept hero
+      const keptSlotRef = getSlotsRef(keepTarget.type);
+      keptSlotRef[keepTarget.index] = {
+        ...keptSlotRef[keepTarget.index]!,
+        star: newStar
+      };
+
+      // Remove the consumed heroes
+      removeTargets.forEach(t => {
+        const tSlotRef = getSlotsRef(t.type);
+        tSlotRef[t.index] = null;
+      });
+
+      return {
+        bench: { slots: newBenchSlots },
+        board: { onFieldSlots: newOnFieldSlots, offFieldSlots: newOffFieldSlots }
+      };
+    }
+  }
+
+  return null; // No merge happened
+};
+
+// Initial setup to get the first shop cards and deduct them from the pool
+const initPool = { ...INITIAL_POOL };
+const initShopCards = drawCardsFromPool(1, initPool);
+
 export const useGameStore = create<RootState>((set, get) => ({
-  player: { gold: 10, hp: 100, maxHp: 100, level: 1, xp: 0 },
-  shop: { cards: generateShop(1), refreshCost: 2 },
+  player: { gold: 10, hp: 100, maxHp: 100, level: 1, xp: 0, maxInterest: 3 },
+  shop: { cards: initShopCards, refreshCost: 2 },
   bench: { slots: Array(9).fill(null) },
-  board: { slots: Array(8).fill(null) }, // 2 rows x 4 cols
+  board: { onFieldSlots: Array(4).fill(null), offFieldSlots: Array(6).fill(null) },
   game: { plane: 1, node: 1, phase: 'planning', winStreak: 0 },
   investments: [],
   ui: { selectedSlot: null },
+  poolCounts: initPool,
+  combatState: {},
+
+  initCombatState: (states) => set({
+    combatState: Object.fromEntries(
+      Object.entries(states).map(([k, v]) => [k, { hp: v.hp, maxHp: v.maxHp, damageEvents: [] }])
+    )
+  }),
+
+  updateCombatHp: (slotKey, hp) => set((state) => {
+    const s = state.combatState[slotKey];
+    if (!s) return state;
+    return {
+      combatState: {
+        ...state.combatState,
+        [slotKey]: { ...s, hp }
+      }
+    };
+  }),
+
+  addDamageEvent: (slotKey, amount) => set((state) => {
+    const s = state.combatState[slotKey];
+    if (!s) return state;
+    return {
+      combatState: {
+        ...state.combatState,
+        [slotKey]: {
+          ...s,
+          damageEvents: [...s.damageEvents, { id: Math.random().toString(36).substring(7), amount }]
+        }
+      }
+    };
+  }),
+
+  removeDamageEvent: (slotKey, eventId) => set((state) => {
+    const s = state.combatState[slotKey];
+    if (!s) return state;
+    return {
+      combatState: {
+        ...state.combatState,
+        [slotKey]: {
+          ...s,
+          damageEvents: s.damageEvents.filter(e => e.id !== eventId)
+        }
+      }
+    };
+  }),
 
   selectSlot: (type, index) => set((state) => {
     const { selectedSlot } = state.ui;
     if (!selectedSlot) {
       // selecting first time
-      const slots = type === 'bench' ? state.bench.slots : state.board.slots;
+      const slots = type === 'bench' ? state.bench.slots : type === 'onField' ? state.board.onFieldSlots : state.board.offFieldSlots;
       if (slots[index]) {
         return { ui: { selectedSlot: { type, index } } };
       }
@@ -117,9 +292,18 @@ export const useGameStore = create<RootState>((set, get) => ({
 
   refreshShop: () => set((state) => {
     if (state.player.gold >= state.shop.refreshCost) {
+      const newPool = { ...state.poolCounts };
+      // Return unbought cards to pool
+      state.shop.cards.forEach(card => {
+        if (card) newPool[card] += 1;
+      });
+      
+      const newCards = drawCardsFromPool(state.player.level, newPool);
+      
       return {
         player: { ...state.player, gold: state.player.gold - state.shop.refreshCost },
-        shop: { ...state.shop, cards: generateShop(state.player.level) }
+        shop: { ...state.shop, cards: newCards },
+        poolCounts: newPool
       };
     }
     return state;
@@ -145,11 +329,21 @@ export const useGameStore = create<RootState>((set, get) => ({
       star: 1
     };
     
-    return {
+    const newState = {
       player: { ...state.player, gold: state.player.gold - heroConfig.cost },
       shop: { ...state.shop, cards: newShopCards },
       bench: { ...state.bench, slots: newBenchSlots }
     };
+
+    // Recursively check for merges
+    let finalState = { ...state, ...newState };
+    let mergeUpdate = checkAndMergeStars(finalState);
+    while (mergeUpdate) {
+      finalState = { ...finalState, ...mergeUpdate };
+      mergeUpdate = checkAndMergeStars(finalState);
+    }
+
+    return finalState;
   }),
 
   sellHero: (benchIndex: number) => set((state) => {
@@ -162,26 +356,56 @@ export const useGameStore = create<RootState>((set, get) => ({
     const newBenchSlots = [...state.bench.slots];
     newBenchSlots[benchIndex] = null;
 
+    const newPool = { ...state.poolCounts };
+    // Add back copies based on star level (1 star = 1, 2 star = 3, 3 star = 9)
+    newPool[hero.heroId] += Math.pow(3, hero.star - 1);
+
     return {
       player: { ...state.player, gold: state.player.gold + sellValue },
-      bench: { ...state.bench, slots: newBenchSlots }
+      bench: { ...state.bench, slots: newBenchSlots },
+      poolCounts: newPool
     };
   }),
 
   moveHero: (from, to) => set((state) => {
-    const getSlots = (type: 'bench' | 'board') => type === 'bench' ? [...state.bench.slots] : [...state.board.slots];
+    if (from.type === to.type && from.index === to.index) return state;
+
+    const getSlots = (type: 'bench' | 'onField' | 'offField') => 
+      type === 'bench' ? [...state.bench.slots] : 
+      type === 'onField' ? [...state.board.onFieldSlots] : 
+      [...state.board.offFieldSlots];
     
     const fromSlots = getSlots(from.type);
-    const toSlots = getSlots(to.type);
+    const toSlots = from.type === to.type ? fromSlots : getSlots(to.type);
     
     const hero = fromSlots[from.index];
     if (!hero) return state;
 
-    // Check board capacity if moving to board
-    if (to.type === 'board' && from.type === 'bench') {
-      const currentBoardCount = state.board.slots.filter(s => s !== null).length;
+    const isMovingToBoard = (to.type === 'onField' || to.type === 'offField') && from.type === 'bench';
+
+    // 1. Check board capacity if moving from bench to board
+    if (isMovingToBoard) {
+      const currentBoardCount = 
+        state.board.onFieldSlots.filter(s => s !== null).length + 
+        state.board.offFieldSlots.filter(s => s !== null).length;
       if (currentBoardCount >= state.player.level && toSlots[to.index] === null) {
         return state; // Reached level cap
+      }
+    }
+
+    // 2. Check for duplicate hero on board (Rule: Only 1 unique hero per board)
+    if (isMovingToBoard) {
+      const allBoardHeroes = [
+        ...state.board.onFieldSlots, 
+        ...state.board.offFieldSlots
+      ].filter(s => s !== null) as HeroInstance[];
+      
+      const hasDuplicate = allBoardHeroes.some(h => h.heroId === hero.heroId);
+      // But wait! If we are replacing an existing hero on the board with the same ID, that's fine.
+      // Also, if we are swapping with a hero on the board that has the same ID, that's fine.
+      const targetHero = toSlots[to.index];
+      if (hasDuplicate && (!targetHero || targetHero.heroId !== hero.heroId)) {
+        return state; // Refuse move: duplicate hero already on board
       }
     }
 
@@ -190,25 +414,53 @@ export const useGameStore = create<RootState>((set, get) => ({
     fromSlots[from.index] = targetHero;
     toSlots[to.index] = hero;
 
-    return {
-      bench: from.type === 'bench' && to.type === 'bench' ? { slots: fromSlots } : 
-             from.type === 'bench' ? { slots: fromSlots } : 
-             to.type === 'bench' ? { slots: toSlots } : state.bench,
-      board: from.type === 'board' && to.type === 'board' ? { slots: fromSlots } : 
-             from.type === 'board' ? { slots: fromSlots } : 
-             to.type === 'board' ? { slots: toSlots } : state.board,
-    };
+    const newState: Partial<RootState> = {};
+
+    if (from.type === 'bench' || to.type === 'bench') {
+      newState.bench = { 
+        slots: from.type === 'bench' ? fromSlots : toSlots
+      };
+    }
+    
+    if (from.type !== 'bench' || to.type !== 'bench') {
+      newState.board = {
+        onFieldSlots: from.type === 'onField' ? fromSlots : 
+                      to.type === 'onField' ? toSlots : state.board.onFieldSlots,
+        offFieldSlots: from.type === 'offField' ? fromSlots : 
+                       to.type === 'offField' ? toSlots : state.board.offFieldSlots
+      };
+    }
+
+    // Recursively check for merges after a move
+    let finalState = { ...state, ...newState };
+    let mergeUpdate = checkAndMergeStars(finalState);
+    while (mergeUpdate) {
+      finalState = { ...finalState, ...mergeUpdate };
+      mergeUpdate = checkAndMergeStars(finalState);
+    }
+
+    return finalState;
   }),
 
   startCombat: () => set({ game: { ...get().game, phase: 'combat' } }),
   
   endCombat: (win: boolean) => set((state) => {
-    const interest = Math.min(5, Math.floor(state.player.gold / 10));
+    const interest = Math.min(state.player.maxInterest, Math.floor(state.player.gold / 10));
     const winGold = win ? 1 : 0;
     const baseGold = 5;
     
     const hpLoss = win ? 0 : 10; // Simplify HP loss
     
+    const nextNode = state.game.node + 1;
+    const nextPhase = nextNode % 5 === 0 ? 'event' : 'planning';
+
+    // 免费刷新商店逻辑
+    const newPool = { ...state.poolCounts };
+    state.shop.cards.forEach(card => {
+      if (card) newPool[card] += 1;
+    });
+    const newCards = drawCardsFromPool(state.player.level, newPool);
+
     return {
       player: { 
         ...state.player, 
@@ -217,15 +469,19 @@ export const useGameStore = create<RootState>((set, get) => ({
       },
       game: {
         ...state.game,
-        phase: state.game.node % 5 === 0 ? 'event' : 'planning',
+        phase: nextPhase,
         winStreak: win ? state.game.winStreak + 1 : 0,
-        node: state.game.node + 1
-      }
+        node: nextNode
+      },
+      shop: { ...state.shop, cards: newCards },
+      poolCounts: newPool,
+      combatState: {} // Clear combat state
     };
   }),
 
-  nextNode: () => set((state) => ({
-    game: { ...state.game, phase: 'planning' },
-    shop: { ...state.shop, cards: generateShop(state.player.level) }
-  }))
+  nextNode: () => set((state) => {
+    return {
+      game: { ...state.game, phase: 'planning' },
+    };
+  })
 }));

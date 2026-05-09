@@ -25,7 +25,7 @@ function App() {
   }, []);
 
   return (
-    <div className="w-screen h-screen flex flex-col relative overflow-hidden bg-[var(--color-hsr-bg)] text-[var(--color-hsr-text)]">
+    <div className="w-screen h-screen flex flex-col relative overflow-hidden bg-[var(--color-hsr-bg)] text-[var(--color-hsr-text)]" style={{ height: '100vh', maxHeight: '100vh' }}>
       {/* 动态深空星云背景 */}
       <div className="space-bg" />
       {particles.map(p => (
@@ -47,23 +47,31 @@ function App() {
       <TopBar />
 
       {/* 核心布局结构 */}
-      <div className="flex-1 flex relative z-10 w-full h-full pt-16 pb-32 px-8 gap-6">
+      <div className="flex-1 flex flex-col relative z-10 w-full h-full pt-20 px-8 gap-6 pb-6 overflow-hidden">
         
-        {/* 左侧：中央战斗区 */}
-        <div className="flex-1 h-full relative">
-          <BattleBoard />
-        </div>
+        <div className="flex flex-1 gap-6 min-h-0">
+          {/* 左侧：中央战斗区 */}
+          <div className="flex-1 flex flex-col relative h-full">
+            <div className="flex-1 relative min-h-0">
+              <BattleBoard />
+            </div>
+            
+            {/* 底部备战席 */}
+            <div className="mt-auto shrink-0 z-20">
+              <BenchPanel />
+            </div>
+          </div>
 
-        {/* 右侧：羁绊与商店面板层叠 */}
-        <div className="w-[320px] h-full flex flex-col gap-4">
-          <InfoPanel />
-          <ShopPanel />
+          {/* 右侧：羁绊与商店面板层叠 */}
+          <div className="w-[320px] flex flex-col gap-4 h-full min-h-0 shrink-0">
+            <div className="h-[55%] min-h-0 shrink-0 flex flex-col">
+              <InfoPanel />
+            </div>
+            <div className="h-[45%] min-h-0 shrink-0 flex flex-col">
+              <ShopPanel />
+            </div>
+          </div>
         </div>
-      </div>
-
-      {/* 底部悬浮透明玻璃条 (备战席 + 商店操作) */}
-      <div className="absolute bottom-6 left-1/2 -translate-x-1/2 w-[90%] z-20">
-        <BenchPanel />
       </div>
     </div>
   );

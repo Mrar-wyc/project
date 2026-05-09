@@ -80,14 +80,18 @@
 
 /* 自定义滚动条隐形 */
 .custom-scrollbar::-webkit-scrollbar {
-  width: 4px;
+  width: 6px;
 }
 .custom-scrollbar::-webkit-scrollbar-track {
-  background: transparent;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 3px;
 }
 .custom-scrollbar::-webkit-scrollbar-thumb {
+  background: var(--color-hsr-muted);
+  border-radius: 3px;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
   background: var(--color-hsr-gold);
-  border-radius: 2px;
 }
 
 /* 动态背景：深空星云与粒子流动 */
