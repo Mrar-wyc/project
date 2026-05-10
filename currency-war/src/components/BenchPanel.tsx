@@ -21,6 +21,8 @@ const BenchPanel: React.FC = () => {
                 onClick={() => selectSlot('bench', index)}
                 width="w-[80px]"
                 height="h-[110px]"
+                zoneType="bench"
+                zoneIndex={index}
               />
               
               {/* 悬浮出售按钮 */}

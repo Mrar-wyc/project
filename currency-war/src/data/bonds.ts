@@ -84,7 +84,39 @@ export const BONDS: Record<string, BondConfig> = {
     id: 'nihility',
     name: '虚无',
     levels: [
-      { count: 2, description: '敌人全体防御力-20%' }
+      { count: 2, description: '敌人全体防御力-20%' },
+      { count: 4, description: '敌人全体防御力-40%' }
+    ]
+  },
+  '持续伤害': {
+    id: 'dot',
+    name: '持续伤害',
+    levels: [
+      { count: 2, description: '行动时对敌方造成基于最大生命值的真实伤害' },
+      { count: 4, description: '真实伤害翻倍，并附带减伤效果' }
+    ]
+  },
+  '欢愉': {
+    id: 'elation',
+    name: '欢愉',
+    levels: [
+      { count: 2, description: '后台角色积攒笑料，前台释放阿哈时刻爆发伤害' },
+      { count: 4, description: '笑料积攒速度加倍，阿哈时刻伤害极大幅度提升' }
+    ]
+  },
+  '能量': {
+    id: 'energy',
+    name: '能量',
+    levels: [
+      { count: 2, description: '行动后额外恢复能量' },
+      { count: 4, description: '能量溢出时重置行动值(AV)' }
+    ]
+  },
+  '白昼半神': {
+    id: 'day_demigod',
+    name: '白昼半神',
+    levels: [
+      { count: 2, description: '极速行动，速度+30%' }
     ]
   },
   '同谐': {

@@ -5,6 +5,7 @@ export interface HeroInstance {
   uuid: string;
   heroId: string;
   star: number;
+  equipments: string[]; // array of equipment IDs
 }
 
 export interface PlayerState {
@@ -14,6 +15,7 @@ export interface PlayerState {
   xp: number;
   maxHp: number;
   maxInterest: number;
+  inventory: string[]; // array of unequipped equipment IDs
 }
 
 export interface ShopState {
@@ -72,6 +74,16 @@ export interface RootState {
   updateCombatHp: (slotKey: string, hp: number) => void;
   addDamageEvent: (slotKey: string, amount: number) => void;
   removeDamageEvent: (slotKey: string, eventId: string) => void;
+
+  // Equipment Actions
+  addEquipment: (equipId: string) => void;
+  equipItem: (fromInventoryIndex: number, target: { type: 'bench' | 'onField' | 'offField', index: number }) => void;
+  unequipItem: (source: { type: 'bench' | 'onField' | 'offField', index: number }, equipIndex: number) => void;
+  craftEquipment: (invIndex1: number, invIndex2: number, resultId: string) => void;
+
+  // Investment / Advisor Actions
+  unlockAdvisor: (heroId: string) => void;
+  applyInvestment: (strategyId: string) => void;
 }
 
 const LEVEL_XP_REQ = [0, 2, 4, 8, 14, 24, 36, 50, 70, 100];
@@ -179,16 +191,30 @@ const checkAndMergeStars = (state: RootState): Partial<RootState> | null => {
         star: newStar
       };
 
-      // Remove the consumed heroes
+      // Remove the consumed heroes and reclaim equipments
+      const reclaimedEquips: string[] = [];
       removeTargets.forEach(t => {
         const tSlotRef = getSlotsRef(t.type);
+        const hero = tSlotRef[t.index];
+        if (hero && hero.equipments) {
+          reclaimedEquips.push(...hero.equipments);
+        }
         tSlotRef[t.index] = null;
       });
 
-      return {
+      const newState: Partial<RootState> = {
         bench: { slots: newBenchSlots },
         board: { onFieldSlots: newOnFieldSlots, offFieldSlots: newOffFieldSlots }
       };
+
+      if (reclaimedEquips.length > 0) {
+        newState.player = {
+          ...state.player,
+          inventory: [...state.player.inventory, ...reclaimedEquips]
+        };
+      }
+
+      return newState;
     }
   }
 
@@ -200,7 +226,7 @@ const initPool = { ...INITIAL_POOL };
 const initShopCards = drawCardsFromPool(1, initPool);
 
 export const useGameStore = create<RootState>((set, get) => ({
-  player: { gold: 10, hp: 100, maxHp: 100, level: 1, xp: 0, maxInterest: 3 },
+  player: { gold: 10, hp: 100, maxHp: 100, level: 1, xp: 0, maxInterest: 3, inventory: ['basic_sword', 'basic_boots'] },
   shop: { cards: initShopCards, refreshCost: 2 },
   bench: { slots: Array(9).fill(null) },
   board: { onFieldSlots: Array(4).fill(null), offFieldSlots: Array(6).fill(null) },
@@ -326,7 +352,8 @@ export const useGameStore = create<RootState>((set, get) => ({
     newBenchSlots[emptyBenchIndex] = {
       uuid: Math.random().toString(36).substring(7),
       heroId: heroId,
-      star: 1
+      star: 1,
+      equipments: []
     };
     
     const newState = {
@@ -482,6 +509,119 @@ export const useGameStore = create<RootState>((set, get) => ({
   nextNode: () => set((state) => {
     return {
       game: { ...state.game, phase: 'planning' },
+    };
+  }),
+
+  addEquipment: (equipId) => set(state => ({
+    player: { ...state.player, inventory: [...state.player.inventory, equipId] }
+  })),
+
+  equipItem: (fromInventoryIndex, target) => set(state => {
+    const equipId = state.player.inventory[fromInventoryIndex];
+    if (!equipId) return state;
+
+    const getSlotsRef = (type: string) => {
+      if (type === 'bench') return [...state.bench.slots];
+      if (type === 'onField') return [...state.board.onFieldSlots];
+      return [...state.board.offFieldSlots];
+    };
+
+    const slots = getSlotsRef(target.type);
+    const hero = slots[target.index];
+    if (!hero) return state;
+    if (hero.equipments.length >= 3) return state; // Max 3 items
+
+    const newInventory = [...state.player.inventory];
+    newInventory.splice(fromInventoryIndex, 1);
+
+    slots[target.index] = {
+      ...hero,
+      equipments: [...hero.equipments, equipId]
+    };
+
+    const newState: Partial<RootState> = { player: { ...state.player, inventory: newInventory } };
+    if (target.type === 'bench') newState.bench = { slots };
+    else if (target.type === 'onField') newState.board = { ...state.board, onFieldSlots: slots };
+    else newState.board = { ...state.board, offFieldSlots: slots };
+
+    return newState;
+  }),
+
+  unequipItem: (source, equipIndex) => set(state => {
+    const getSlotsRef = (type: string) => {
+      if (type === 'bench') return [...state.bench.slots];
+      if (type === 'onField') return [...state.board.onFieldSlots];
+      return [...state.board.offFieldSlots];
+    };
+
+    const slots = getSlotsRef(source.type);
+    const hero = slots[source.index];
+    if (!hero || !hero.equipments[equipIndex]) return state;
+
+    const equipId = hero.equipments[equipIndex];
+    const newEquipments = [...hero.equipments];
+    newEquipments.splice(equipIndex, 1);
+
+    slots[source.index] = {
+      ...hero,
+      equipments: newEquipments
+    };
+
+    const newState: Partial<RootState> = { 
+      player: { ...state.player, inventory: [...state.player.inventory, equipId] } 
+    };
+    if (source.type === 'bench') newState.bench = { slots };
+    else if (source.type === 'onField') newState.board = { ...state.board, onFieldSlots: slots };
+    else newState.board = { ...state.board, offFieldSlots: slots };
+
+    return newState;
+  }),
+
+  craftEquipment: (invIndex1, invIndex2, resultId) => set(state => {
+    const inv = [...state.player.inventory];
+    const i1 = Math.max(invIndex1, invIndex2);
+    const i2 = Math.min(invIndex1, invIndex2);
+    
+    if (i1 >= inv.length || i2 >= inv.length || i1 === i2) return state;
+
+    inv.splice(i1, 1);
+    inv.splice(i2, 1);
+    inv.push(resultId);
+
+    return {
+      player: { ...state.player, inventory: inv }
+    };
+  }),
+
+  unlockAdvisor: (heroId) => set(state => {
+    if (state.poolCounts[heroId] !== undefined) return state; // Already unlocked
+    const heroConfig = HEROES.find(h => h.id === heroId);
+    if (!heroConfig) return state;
+    
+    const newPool = { ...state.poolCounts };
+    newPool[heroId] = COST_POOL_COUNTS[heroConfig.cost] || 0;
+    
+    return { poolCounts: newPool };
+  }),
+
+  applyInvestment: (strategyId) => set(state => {
+    let newInterest = state.player.maxInterest;
+    let newGold = state.player.gold;
+    
+    if (strategyId === 'prism_cut_costs') {
+      newInterest = 9;
+      newGold += 10;
+    } else if (strategyId === 'silver_market') {
+      // 5 free refreshes could be implemented by adding to a specific counter, keeping it simple for now
+    } else if (strategyId === 'advisor_silver_wolf') {
+      get().unlockAdvisor('h22'); // Silver Wolf LV.999
+    } else if (strategyId === 'advisor_gallagher') {
+      get().unlockAdvisor('h23'); // Gallagher
+    }
+
+    return {
+      player: { ...state.player, maxInterest: newInterest, gold: newGold },
+      investments: [...state.investments, strategyId]
     };
   })
 }));

@@ -4,6 +4,8 @@ import { useGameStore, type HeroInstance } from '../store/gameStore';
 import { motion, useMotionValue, useTransform, AnimatePresence } from 'framer-motion';
 import { Coins } from 'lucide-react';
 
+import { EQUIPMENTS } from '../data/equipment';
+
 interface Props {
   instance?: HeroInstance | null;
   heroId?: string; // For shop
@@ -14,6 +16,8 @@ interface Props {
   width?: string;
   height?: string;
   slotKey?: string; // For combat state binding
+  zoneType?: 'bench' | 'onField' | 'offField';
+  zoneIndex?: number;
 }
 
 const HeroCard: React.FC<Props> = ({ 
@@ -25,10 +29,13 @@ const HeroCard: React.FC<Props> = ({
   className = '',
   width = 'w-24',
   height = 'h-32',
-  slotKey
+  slotKey,
+  zoneType,
+  zoneIndex
 }) => {
   const combatState = useGameStore(state => slotKey ? state.combatState[slotKey] : undefined);
   const removeDamageEvent = useGameStore(state => state.removeDamageEvent);
+  const equipItem = useGameStore(state => state.equipItem);
 
   const cardRef = useRef<HTMLDivElement>(null);
   const x = useMotionValue(0);
@@ -49,6 +56,21 @@ const HeroCard: React.FC<Props> = ({
   const handleMouseLeave = () => {
     x.set(0);
     y.set(0);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    if (!instance || !zoneType || zoneIndex === undefined) return;
+    try {
+      const data = JSON.parse(e.dataTransfer.getData('application/json'));
+      if (data.source === 'inventory') {
+        equipItem(data.index, { type: zoneType, index: zoneIndex });
+      }
+    } catch (err) {}
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
   };
 
   if (isSold) {
@@ -83,6 +105,8 @@ const HeroCard: React.FC<Props> = ({
         ref={cardRef}
         onMouseMove={handleMouseMove}
         onMouseLeave={handleMouseLeave}
+        onDrop={handleDrop}
+        onDragOver={handleDragOver}
         onClick={onClick}
         style={{ rotateX, rotateY }}
         whileHover={{ scale: 1.05, zIndex: 10, boxShadow: '0 0 20px rgba(212,168,83,0.5)' }}
@@ -110,13 +134,36 @@ const HeroCard: React.FC<Props> = ({
         {/* Info */}
         <div className="z-10 relative">
           <div className="text-center font-bold text-sm tracking-wider text-[var(--color-hsr-title)] drop-shadow-md mb-1">{hero.name}</div>
-          <div className="flex flex-wrap gap-0.5 justify-center">
+          <div className="flex flex-wrap gap-0.5 justify-center mb-1">
             {hero.traits.map(t => (
               <span key={t} className="text-[9px] bg-[rgba(255,255,255,0.1)] px-1 rounded-sm text-[var(--color-hsr-text)] whitespace-nowrap">
                 {t}
               </span>
             ))}
           </div>
+          {/* Equipments */}
+          {instance && instance.equipments && instance.equipments.length > 0 && (
+            <div className="flex justify-center gap-1 mt-1 z-50">
+              {instance.equipments.map((eqId, idx) => {
+                const eq = EQUIPMENTS[eqId];
+                return (
+                  <div 
+                    key={idx} 
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (zoneType && zoneIndex !== undefined) {
+                        useGameStore.getState().unequipItem({ type: zoneType, index: zoneIndex }, idx);
+                      }
+                    }}
+                    className={`w-4 h-4 flex items-center justify-center bg-black/60 rounded-full border cursor-pointer hover:scale-110 transition-transform ${eq?.type === 'advanced' ? 'border-[var(--color-hsr-gold)]' : 'border-gray-400'}`}
+                    title="点击卸下"
+                  >
+                    <span className="text-[8px]">{eq?.icon}</span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
 
         {/* Combat HP Bar */}

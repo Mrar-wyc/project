@@ -60,6 +60,8 @@ const BattleBoard: React.FC = () => {
                   slotKey={`player-onField-${index}`}
                   isSelected={ui.selectedSlot?.type === 'onField' && ui.selectedSlot?.index === index}
                   onClick={() => selectSlot('onField', index)}
+                  zoneType="onField"
+                  zoneIndex={index}
                 />
               </motion.div>
             ))}
@@ -80,6 +82,8 @@ const BattleBoard: React.FC = () => {
                   slotKey={`player-offField-${index}`}
                   isSelected={ui.selectedSlot?.type === 'offField' && ui.selectedSlot?.index === index}
                   onClick={() => selectSlot('offField', index)}
+                  zoneType="offField"
+                  zoneIndex={index}
                 />
               </motion.div>
             ))}

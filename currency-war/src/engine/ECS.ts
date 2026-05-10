@@ -60,6 +60,17 @@ export class BondComponent extends Component {
   }
 }
 
+export class EnergyComponent extends Component {
+  currentEnergy: number;
+  maxEnergy: number;
+
+  constructor(entityId: EntityId, maxEnergy: number = 100) {
+    super(entityId);
+    this.currentEnergy = 0;
+    this.maxEnergy = maxEnergy;
+  }
+}
+
 export class ECSWorld {
   private nextEntityId = 1;
   public entities: Set<EntityId> = new Set();
@@ -68,6 +79,7 @@ export class ECSWorld {
   public action: Map<EntityId, ActionComponent> = new Map();
   public faction: Map<EntityId, FactionComponent> = new Map();
   public bond: Map<EntityId, BondComponent> = new Map();
+  public energy: Map<EntityId, EnergyComponent> = new Map();
 
   createEntity(): EntityId {
     const id = this.nextEntityId++;
@@ -81,5 +93,6 @@ export class ECSWorld {
     this.action.delete(id);
     this.faction.delete(id);
     this.bond.delete(id);
+    this.energy.delete(id);
   }
 }

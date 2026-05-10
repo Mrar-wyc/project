@@ -4,6 +4,8 @@ import ShopPanel from './components/ShopPanel';
 import BenchPanel from './components/BenchPanel';
 import BattleBoard from './components/BattleBoard';
 import InfoPanel from './components/InfoPanel';
+import InventoryPanel from './components/InventoryPanel';
+import EventModal from './components/EventModal';
 
 function App() {
   // Generate random particles for the background
@@ -60,6 +62,9 @@ function App() {
             <div className="mt-auto shrink-0 z-20">
               <BenchPanel />
             </div>
+
+            {/* 左侧装备面板 */}
+            <InventoryPanel />
           </div>
 
           {/* 右侧：羁绊与商店面板层叠 */}
@@ -73,6 +78,8 @@ function App() {
           </div>
         </div>
       </div>
+
+      <EventModal />
     </div>
   );
 }
